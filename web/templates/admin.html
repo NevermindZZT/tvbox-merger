@@ -71,9 +71,12 @@
                     <div>
                         <h3 class="font-semibold text-gray-800 dark:text-white">{{ .Name }}</h3>
                         <code class="text-xs text-blue-500 dark:text-blue-400">{{ .SlugURL }}</code>
+                        {{ if .ProxyMode }}
+                        <span class="badge badge-yellow ml-1">代理模式</span>
+                        {{ end }}
                     </div>
                     <div class="flex space-x-1">
-                        <button onclick="editGroup({{ .ID }}, '{{ .Name }}', '{{ .Slug }}')" class="text-gray-400 hover:text-blue-500 transition-colors p-1">
+                        <button onclick="editGroup({{ .ID }}, '{{ .Name }}', '{{ .Slug }}', {{ .ProxyMode }})" class="text-gray-400 hover:text-blue-500 transition-colors p-1">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                             </svg>
@@ -212,6 +215,13 @@
                         placeholder="例如：my-collection">
                     <p class="text-xs text-gray-400 mt-1">合并源地址：<code class="text-blue-500">/tvbox/&lt;标识&gt;.json</code></p>
                 </div>
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="groupProxyMode"
+                        class="w-4 h-4 text-yellow-500 border-gray-300 rounded focus:ring-yellow-500">
+                    <label for="groupProxyMode" class="text-sm text-gray-700 dark:text-gray-300">
+                        代理模式 <span class="text-xs text-gray-400">(仅透传单个源，TVBox 统一入口)</span>
+                    </label>
+                </div>
                 <div id="groupFormError" class="text-red-500 text-sm hidden"></div>
                 <div class="flex justify-end space-x-3 pt-2">
                     <button type="button" onclick="closeGroupModal()" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">取消</button>
@@ -298,17 +308,19 @@
             document.getElementById('groupId').value = '';
             document.getElementById('groupName').value = '';
             document.getElementById('groupSlug').value = '';
+            document.getElementById('groupProxyMode').checked = false;
             document.getElementById('groupFormError').classList.add('hidden');
             document.getElementById('groupModal').classList.remove('hidden');
             document.getElementById('groupModal').classList.add('flex');
         }
 
-        function editGroup(id, name, slug) {
+        function editGroup(id, name, slug, proxyMode) {
             editingGroupId = id;
             document.getElementById('groupModalTitle').textContent = '编辑分组';
             document.getElementById('groupId').value = id;
             document.getElementById('groupName').value = name;
             document.getElementById('groupSlug').value = slug;
+            document.getElementById('groupProxyMode').checked = proxyMode;
             document.getElementById('groupFormError').classList.add('hidden');
             document.getElementById('groupModal').classList.remove('hidden');
             document.getElementById('groupModal').classList.add('flex');
@@ -324,6 +336,7 @@
             const id = document.getElementById('groupId').value;
             const name = document.getElementById('groupName').value;
             const slug = document.getElementById('groupSlug').value;
+            const proxyMode = document.getElementById('groupProxyMode').checked;
             const err = document.getElementById('groupFormError');
             const btn = document.getElementById('groupSubmitBtn');
 
@@ -335,7 +348,7 @@
             const endpoint = id ? `/admin/groups/${id}` : '/admin/groups';
 
             try {
-                const resp = await fetch(endpoint, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, slug}) });
+                const resp = await fetch(endpoint, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, slug, proxy_mode: proxyMode}) });
                 const data = await resp.json();
                 if (resp.ok) {
                     showToast(id ? '分组已更新！' : '分组已创建！');

@@ -1,8 +1,8 @@
 # TVBox Source Merger
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/docker/pulls/你的Docker用户名/tvbox-merger?label=Docker%20Pulls)](https://hub.docker.com/r/你的Docker用户名/tvbox-merger)
-[![Build](https://github.com/你的GitHub用户名/tvbox-merger/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/你的GitHub用户名/tvbox-merger/actions/workflows/docker-publish.yml)
+[![Docker](https://img.shields.io/docker/pulls/nevermindzzt/tvbox-merger?label=Docker%20Pulls)](https://hub.docker.com/r/nevermindzzt/tvbox-merger)
+[![Build](https://github.com/nevermindzzt/tvbox-merger/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/nevermindzzt/tvbox-merger/actions/workflows/docker-publish.yml)
 
 将多个 TVBox JSON 源合并为一个聚合源 — 支持自动刷新、智能缓存和美观的管理后台。
 
@@ -94,15 +94,16 @@ go build -o tvbox-merger .
 
 ### 方式一：从 Docker Hub 拉取（推荐）
 
-项目已配置 GitHub Actions 自动构建，每次推送 `main` 分支或打 `v*` 标签时自动构建多架构镜像（linux/amd64, linux/arm64）。
+项目已配置 GitHub Actions 自动构建，每次推送 `main` 分支或打 `v*` 标签时自动构建多架构镜像（linux/amd64, linux/arm64）。镜像托管于 [nevermindzzt/tvbox-merger](https://hub.docker.com/r/nevermindzzt/tvbox-merger)。
 
-> **注意**：首次使用前，请在 GitHub 仓库 Settings → Secrets and variables → Actions 中配置：
-> - `DOCKER_USERNAME` — Docker Hub 用户名
-> - `DOCKER_PASSWORD` — Docker Hub 密码或访问令牌
+```bash
+# 使用 docker-compose.pull.yml 一键拉取并运行
+docker compose -f docker-compose.pull.yml up -d
+```
 
 ```bash
 # 拉取最新镜像
-docker pull 你的Docker用户名/tvbox-merger:latest
+docker pull nevermindzzt/tvbox-merger:latest
 
 # 运行容器
 docker run -d \
@@ -112,7 +113,7 @@ docker run -d \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=your-password \
   -e JWT_SECRET=your-random-secret \
-  你的Docker用户名/tvbox-merger:latest
+  nevermindzzt/tvbox-merger:latest
 ```
 
 ### 方式二：Docker Compose 本地构建

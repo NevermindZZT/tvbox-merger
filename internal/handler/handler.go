@@ -2,10 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -22,6 +25,19 @@ type Handler struct {
 	cfg       *config.Config
 	auth      *auth.AuthHandler
 	scheduler *scheduler.Scheduler
+	proxy     *http.Client
+}
+
+func newProxyClient(cfg *config.Config) *http.Client {
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
 }
 
 func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) *scheduler.Scheduler {
@@ -33,6 +49,7 @@ func SetupRoutes(r *gin.Engine, db *gorm.DB, cfg *config.Config) *scheduler.Sche
 		cfg:       cfg,
 		auth:      authHandler,
 		scheduler: sched,
+		proxy:     newProxyClient(cfg),
 	}
 
 	// Public routes
@@ -99,6 +116,14 @@ func (h *Handler) GetMergedBySlug(c *gin.Context) {
 }
 
 func (h *Handler) serveMergedByGroup(c *gin.Context, groupID uint) {
+	// 代理模式：直接做 HTTP 反向代理，完全透传上游响应
+	group, err := database.GetGroupByID(h.db, groupID)
+	if err == nil && group.ProxyMode {
+		h.handleProxyMode(c, groupID)
+		return
+	}
+
+	// 合并模式：从 SQLite 读取合并结果
 	merged, err := database.GetMergedResultByGroup(h.db, groupID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "该分组暂无合并结果，请先在管理后台添加源并触发合并"})
@@ -110,7 +135,148 @@ func (h *Handler) serveMergedByGroup(c *gin.Context, groupID uint) {
 		return
 	}
 
-	c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(merged.Content))
+	// 使用纯 application/json（不含 charset），添加 CORS 和缓存控制头，
+	// 以匹配多数 TVBox 原始源的响应格式，避免客户端解析异常
+	c.Writer.Header().Set("Content-Type", "application/json")
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+	c.Writer.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	c.Writer.Header().Set("ETag", fmt.Sprintf("tvbox-merger-%d", merged.UpdatedAt.Unix()))
+	c.Writer.Header().Set("Last-Modified", merged.UpdatedAt.Format(http.TimeFormat))
+	// 直接写裸 JSON 字节，Content-Length 由 Go HTTP 自动计算
+	c.Writer.WriteHeader(http.StatusOK)
+	c.Writer.Write([]byte(merged.Content))
+}
+
+// handleProxyMode 对上游源做完整的 HTTP 反向代理
+// 1. 直接请求上游 URL
+// 2. 拷贝所有上游响应头（跳逐跳头除外）
+// 3. 流式写入上游响应体和状态码
+// 4. 缓存到文件用于离线回退
+func (h *Handler) handleProxyMode(c *gin.Context, groupID uint) {
+	sources, err := database.GetEnabledSourcesByGroup(h.db, groupID)
+	if err != nil || len(sources) == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "该分组没有可用的源"})
+		return
+	}
+	src := sources[0]
+
+	// 获取缓存的 UA 或使用默认值
+	ua := h.cfg.DefaultUA
+	if ua == "" {
+		ua = "okhttp/4.1.0"
+	}
+
+	// 构建上游请求
+	req, err := http.NewRequest("GET", src.URL, nil)
+	if err != nil {
+		log.Printf("代理 [%d] 请求创建失败: %v", groupID, err)
+		// 回退到缓存
+		h.serveProxyFromCache(c, groupID)
+		return
+	}
+	req.Header.Set("User-Agent", ua)
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+
+	resp, err := h.proxy.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if err != nil {
+			log.Printf("代理 [%d] 请求上游失败: %v", groupID, err)
+		} else {
+			log.Printf("代理 [%d] 上游返回 %d", groupID, resp.StatusCode)
+		}
+		if resp != nil {
+			resp.Body.Close()
+		}
+		// 回退到缓存
+		h.serveProxyFromCache(c, groupID)
+		return
+	}
+	defer resp.Body.Close()
+
+	// 读取上游响应体
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 50*1024*1024))
+	if err != nil {
+		log.Printf("代理 [%d] 读取响应体失败: %v", groupID, err)
+		h.serveProxyFromCache(c, groupID)
+		return
+	}
+
+	// 保存到文件缓存
+	_ = database.SaveProxyCache(h.cfg.CacheDir, groupID, body, resp.Header, resp.StatusCode)
+
+	// 拷贝所有上游响应头（跳逐跳头除外）
+	hopByHop := map[string]bool{
+		"Connection":          true,
+		"Keep-Alive":          true,
+		"Transfer-Encoding":   true,
+		"TE":                  true,
+		"Trailer":             true,
+		"Upgrade":             true,
+		"Proxy-Authorization": true,
+		"Proxy-Authenticate":  true,
+	}
+	for k, v := range resp.Header {
+		if !hopByHop[k] {
+			c.Writer.Header()[k] = v
+		}
+	}
+	// 确保 Content-Type 和 CORS 头存在
+	if c.Writer.Header().Get("Content-Type") == "" {
+		c.Writer.Header().Set("Content-Type", "application/json")
+	}
+	if c.Writer.Header().Get("Access-Control-Allow-Origin") == "" {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+
+	// 写入上游的状态码和响应体
+	c.Writer.WriteHeader(resp.StatusCode)
+	c.Writer.Write(body)
+
+	log.Printf("代理 [%d] 透传完成: %s (%d 字节)", groupID, src.Name, len(body))
+}
+
+// serveProxyFromCache 从文件缓存中恢复上游响应
+func (h *Handler) serveProxyFromCache(c *gin.Context, groupID uint) {
+	if !database.ProxyCacheExists(h.cfg.CacheDir, groupID) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "上游不可用且无缓存"})
+		return
+	}
+
+	body, meta, err := database.LoadProxyCache(h.cfg.CacheDir, groupID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "缓存读取失败"})
+		return
+	}
+
+	// 恢复缓存的响应头
+	hopByHop := map[string]bool{
+		"Connection":          true,
+		"Keep-Alive":          true,
+		"Transfer-Encoding":   true,
+		"TE":                  true,
+		"Trailer":             true,
+		"Upgrade":             true,
+		"Proxy-Authorization": true,
+		"Proxy-Authenticate":  true,
+	}
+	for k, v := range meta.Headers {
+		if !hopByHop[k] {
+			c.Writer.Header()[k] = v
+		}
+	}
+	if c.Writer.Header().Get("Content-Type") == "" {
+		c.Writer.Header().Set("Content-Type", "application/json")
+	}
+	c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+
+	statusCode := meta.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	c.Writer.WriteHeader(statusCode)
+	c.Writer.Write(body)
+
+	log.Printf("代理 [%d] 从缓存恢复 (%d 字节)", groupID, len(body))
 }
 
 // ─── Admin Dashboard ───────────────────────────────────────────
@@ -162,8 +328,9 @@ func (h *Handler) AdminDashboard(c *gin.Context) {
 
 func (h *Handler) CreateGroup(c *gin.Context) {
 	var req struct {
-		Name string `form:"name" json:"name" binding:"required"`
-		Slug string `form:"slug" json:"slug" binding:"required"`
+		Name      string `form:"name" json:"name" binding:"required"`
+		Slug      string `form:"slug" json:"slug" binding:"required"`
+		ProxyMode bool   `form:"proxy_mode" json:"proxy_mode"`
 	}
 	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "分组名称和标识不能为空"})
@@ -171,8 +338,9 @@ func (h *Handler) CreateGroup(c *gin.Context) {
 	}
 
 	g := &model.Group{
-		Name: req.Name,
-		Slug: req.Slug,
+		Name:      req.Name,
+		Slug:      req.Slug,
+		ProxyMode: req.ProxyMode,
 	}
 	if err := database.CreateGroup(h.db, g); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -196,8 +364,9 @@ func (h *Handler) UpdateGroup(c *gin.Context) {
 	}
 
 	var req struct {
-		Name string `form:"name" json:"name"`
-		Slug string `form:"slug" json:"slug"`
+		Name      string `form:"name" json:"name"`
+		Slug      string `form:"slug" json:"slug"`
+		ProxyMode *bool  `form:"proxy_mode" json:"proxy_mode"`
 	}
 	if err := c.ShouldBind(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "请求无效"})
@@ -209,6 +378,9 @@ func (h *Handler) UpdateGroup(c *gin.Context) {
 	}
 	if req.Slug != "" {
 		g.Slug = req.Slug
+	}
+	if req.ProxyMode != nil {
+		g.ProxyMode = *req.ProxyMode
 	}
 
 	if err := database.UpdateGroup(h.db, g); err != nil {
@@ -247,6 +419,16 @@ func (h *Handler) CreateSource(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的分组 ID"})
 		return
+	}
+
+	// 检查分组是否为代理模式：代理模式只能添加一个源
+	group, err := database.GetGroupByID(h.db, uint(gid))
+	if err == nil && group.ProxyMode {
+		sources, err := database.GetEnabledSourcesByGroup(h.db, group.ID)
+		if err == nil && len(sources) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "代理模式分组只能有一个源"})
+			return
+		}
 	}
 
 	var req struct {

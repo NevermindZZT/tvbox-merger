@@ -7,6 +7,7 @@ type Group struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	Name      string    `gorm:"size:255;not null" json:"name"`
 	Slug      string    `gorm:"size:255;uniqueIndex;not null" json:"slug"`
+	ProxyMode bool      `gorm:"default:false" json:"proxy_mode"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

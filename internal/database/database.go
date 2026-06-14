@@ -1,8 +1,12 @@
 package database
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -155,6 +159,70 @@ func UpsertCache(db *gorm.DB, c *model.Cache) error {
 func InvalidateCache(db *gorm.DB, sourceID uint) error {
 	return db.Model(&model.Cache{}).Where("source_id = ?", sourceID).Update("is_valid", false).Error
 }
+
+// ─── 代理模式文件缓存 ──────────────────────────────────────────
+// 代理模式使用文件缓存而不经过 SQLite，避免任何可能的编码转换问题
+
+type ProxyCacheMeta struct {
+	StatusCode int                 `json:"status_code"`
+	Headers    map[string][]string `json:"headers"`
+	FetchedAt  int64               `json:"fetched_at"`
+}
+
+func proxyCachePath(cacheDir string, groupID uint) (bodyPath, metaPath string) {
+	bodyPath = filepath.Join(cacheDir, fmt.Sprintf("proxy_%d.json", groupID))
+	metaPath = filepath.Join(cacheDir, fmt.Sprintf("proxy_%d.meta", groupID))
+	return
+}
+
+func SaveProxyCache(cacheDir string, groupID uint, body []byte, headers http.Header, statusCode int) error {
+	bodyPath, metaPath := proxyCachePath(cacheDir, groupID)
+
+	// Write raw body (no encoding/transformation)
+	if err := os.WriteFile(bodyPath, body, 0644); err != nil {
+		return err
+	}
+
+	// Write metadata as JSON
+	meta := ProxyCacheMeta{
+		StatusCode: statusCode,
+		Headers:    headers,
+		FetchedAt:  time.Now().Unix(),
+	}
+	metaBytes, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(metaPath, metaBytes, 0644)
+}
+
+func LoadProxyCache(cacheDir string, groupID uint) ([]byte, *ProxyCacheMeta, error) {
+	bodyPath, metaPath := proxyCachePath(cacheDir, groupID)
+
+	body, err := os.ReadFile(bodyPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	metaBytes, err := os.ReadFile(metaPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var meta ProxyCacheMeta
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		return nil, nil, err
+	}
+
+	return body, &meta, nil
+}
+
+func ProxyCacheExists(cacheDir string, groupID uint) bool {
+	bodyPath, _ := proxyCachePath(cacheDir, groupID)
+	_, err := os.Stat(bodyPath)
+	return err == nil
+}
+
 
 // ─── MergedResult ──────────────────────────────────────────────
 

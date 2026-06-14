@@ -24,7 +24,7 @@ type Scheduler struct {
 func New(db *gorm.DB, cfg *config.Config) *Scheduler {
 	c := cron.New(cron.WithSeconds())
 	fet := fetcher.New(cfg)
-	m := merger.New(db, fet)
+	m := merger.New(db, fet, cfg)
 
 	return &Scheduler{
 		cron:   c,

@@ -2,4 +2,4 @@
 .codegraph
 .reasonix
 data/
-server-test.exe~
+server-test.exe*
