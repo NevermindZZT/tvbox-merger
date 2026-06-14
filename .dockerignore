@@ -1,0 +1,9 @@
+.git/
+.gitattributes
+.gitignore
+.github/
+*.exe
+*.test
+data/
+.env
+README.md

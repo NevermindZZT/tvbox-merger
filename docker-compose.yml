@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  tvbox-merger:
+    build: .
+    container_name: tvbox-merger
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=8080
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - JWT_SECRET=${JWT_SECRET:-change-this-to-a-random-secret}
+      - REFRESH_INTERVAL=${REFRESH_INTERVAL:-6h}
+      - CACHE_MAX_AGE=${CACHE_MAX_AGE:-24h}
+      - DATA_SOURCE=/app/data/tvbox.db
+      - CACHE_DIR=/app/data/cache
+      - TZ=${TZ:-Asia/Shanghai}

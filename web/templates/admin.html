@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - TVBox 源合并</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {50: '#eff6ff',100: '#dbeafe',200: '#bfdbfe',300: '#93c5fd',400: '#60a5fa',500: '#3b82f6',600: '#2563eb',700: '#1d4ed8',800: '#1e40af',900: '#1e3a8a',950: '#172554'}
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+        .glass { background: rgba(255,255,255,0.6); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.3); }
+        .dark .glass { background: rgba(30,30,50,0.5); border-color: rgba(255,255,255,0.05); }
+        .fade-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        .modal-overlay { background: rgba(0,0,0,0.4); backdrop-filter: blur(4px); }
+        .badge { @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium; }
+        .badge-green { @apply bg-green-100 text-green-800 dark:bg-green-900/60 dark:text-green-300; }
+        .badge-red { @apply bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-300; }
+        .badge-yellow { @apply bg-yellow-100 text-yellow-800 dark:bg-yellow-900/60 dark:text-yellow-300; }
+        .badge-gray { @apply bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300; }
+        .tab-active { border-bottom: 2px solid #3b82f6; color: #2563eb; }
+        .dark .tab-active { border-bottom: 2px solid #60a5fa; color: #60a5fa; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-gray-950 dark:via-gray-900 dark:to-slate-900 min-h-screen">
+    <div class="max-w-6xl mx-auto px-4 py-8 fade-in">
+        <!-- 顶部导航 -->
+        <div class="glass rounded-2xl p-6 mb-6 flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-gray-800 dark:text-white">TVBox 源合并</h1>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">多分组管理控制台</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button onclick="openAddGroupModal()"
+                    class="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700 transition-all shadow-lg flex items-center space-x-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                    </svg>
+                    <span>新建分组</span>
+                </button>
+                <a href="/admin/logout" onclick="handleLogout(event)"
+                   class="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-all">
+                    退出登录
+                </a>
+            </div>
+        </div>
+
+        <!-- 分组卡片列表 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            {{ range .groups }}
+            <div class="glass rounded-xl p-5 relative group-card">
+                <div class="flex items-start justify-between mb-3">
+                    <div>
+                        <h3 class="font-semibold text-gray-800 dark:text-white">{{ .Name }}</h3>
+                        <code class="text-xs text-blue-500 dark:text-blue-400">{{ .SlugURL }}</code>
+                    </div>
+                    <div class="flex space-x-1">
+                        <button onclick="editGroup({{ .ID }}, '{{ .Name }}', '{{ .Slug }}')" class="text-gray-400 hover:text-blue-500 transition-colors p-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                            </svg>
+                        </button>
+                        {{ if ne .ID 1 }}
+                        <button onclick="deleteGroup({{ .ID }}, '{{ .Name }}')" class="text-gray-400 hover:text-red-500 transition-colors p-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                        </button>
+                        {{ end }}
+                    </div>
+                </div>
+                <div class="flex items-center justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400">
+                        源: <strong class="text-gray-700 dark:text-gray-200">{{ .SourceCount }}</strong>
+                    </span>
+                    <span class="text-gray-500 dark:text-gray-400">
+                        {{ if .LastMergeTime }}{{ .LastMergeTime }}{{ else }}尚未合并{{ end }}
+                    </span>
+                </div>
+                <div class="mt-3 flex space-x-2">
+                    <button onclick="addSourceToGroup({{ .ID }}, '{{ .Name }}')"
+                        class="flex-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all">
+                        + 添加源
+                    </button>
+                    <button onclick="refreshGroup({{ .ID }})"
+                        class="px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">
+                        刷新
+                    </button>
+                    <a href="{{ .SlugURL }}" target="_blank"
+                        class="px-3 py-1.5 bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300 rounded-lg text-xs font-medium hover:bg-green-100 dark:hover:bg-green-900/50 transition-all inline-flex items-center">
+                        查看
+                    </a>
+                </div>
+            </div>
+            {{ end }}
+        </div>
+
+        <!-- 源列表 -->
+        <div class="glass rounded-2xl overflow-hidden">
+            <div class="p-5 border-b border-gray-200/50 dark:border-gray-700/30">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-white">所有源列表</h2>
+            </div>
+
+            {{ if .sources }}
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                    <thead>
+                        <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50/50 dark:bg-gray-800/50">
+                            <th class="px-5 py-3">状态</th>
+                            <th class="px-5 py-3">名称</th>
+                            <th class="px-5 py-3 hidden md:table-cell">URL</th>
+                            <th class="px-5 py-3 hidden sm:table-cell">分组</th>
+                            <th class="px-5 py-3 hidden sm:table-cell">最后抓取</th>
+                            <th class="px-5 py-3 text-right">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200/50 dark:divide-gray-700/30">
+                        {{ range .sources }}
+                        <tr class="hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors">
+                            <td class="px-5 py-4">
+                                {{ if .Healthy }}
+                                <span class="badge badge-green">正常</span>
+                                {{ else if .CacheValid }}
+                                <span class="badge badge-yellow">缓存</span>
+                                {{ else }}
+                                <span class="badge badge-red">离线</span>
+                                {{ end }}
+                            </td>
+                            <td class="px-5 py-4">
+                                <div class="flex items-center space-x-2">
+                                    <span class="font-medium text-gray-800 dark:text-white">{{ .Name }}</span>
+                                    {{ if not .Enabled }}
+                                    <span class="badge badge-gray">禁用</span>
+                                    {{ end }}
+                                </div>
+                            </td>
+                            <td class="px-5 py-4 hidden md:table-cell">
+                                <code class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-xs block">{{ .URL }}</code>
+                            </td>
+                            <td class="px-5 py-4 hidden sm:table-cell">
+                                <span class="text-sm text-gray-500 dark:text-gray-400">{{ .GroupName }}</span>
+                            </td>
+                            <td class="px-5 py-4 hidden sm:table-cell">
+                                <span class="text-sm text-gray-500 dark:text-gray-400">{{ if .LastFetchTime }}{{ .LastFetchTime }}{{ else }}从未{{ end }}</span>
+                            </td>
+                            <td class="px-5 py-4 text-right">
+                                <button onclick='editSource({{ .ID }}, {{ json . }})'
+                                    class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium mr-3 transition-colors">
+                                    编辑
+                                </button>
+                                <button onclick='deleteSource({{ .ID }}, "{{ .Name }}")'
+                                    class="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">
+                                    删除
+                                </button>
+                            </td>
+                        </tr>
+                        {{ end }}
+                    </tbody>
+                </table>
+            </div>
+            {{ else }}
+            <div class="text-center py-16 px-4">
+                <div class="w-16 h-16 mx-auto mb-4 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
+                    <svg class="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path>
+                    </svg>
+                </div>
+                <h3 class="text-lg font-medium text-gray-600 dark:text-gray-300 mb-2">暂无源</h3>
+                <p class="text-gray-400 dark:text-gray-500 mb-6">先创建一个分组，然后在分组中添加源</p>
+            </div>
+            {{ end }}
+        </div>
+    </div>
+
+    <!-- 新建/编辑分组弹窗 -->
+    <div id="groupModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4">
+            <div class="flex items-center justify-between mb-5">
+                <h3 id="groupModalTitle" class="text-lg font-semibold text-gray-800 dark:text-white">新建分组</h3>
+                <button onclick="closeGroupModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+            </div>
+            <form id="groupForm" class="space-y-4" onsubmit="handleGroupSubmit(event)">
+                <input type="hidden" id="groupId" value="">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">分组名称</label>
+                    <input type="text" id="groupName" required
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="例如：我的合集">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">URL 标识</label>
+                    <input type="text" id="groupSlug" required pattern="[a-zA-Z0-9_-]+"
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="例如：my-collection">
+                    <p class="text-xs text-gray-400 mt-1">合并源地址：<code class="text-blue-500">/tvbox/&lt;标识&gt;.json</code></p>
+                </div>
+                <div id="groupFormError" class="text-red-500 text-sm hidden"></div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button type="button" onclick="closeGroupModal()" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">取消</button>
+                    <button type="submit" id="groupSubmitBtn" class="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-blue-700 hover:to-indigo-700 shadow-lg">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 添加源弹窗 -->
+    <div id="sourceModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4">
+            <div class="flex items-center justify-between mb-5">
+                <h3 id="sourceModalTitle" class="text-lg font-semibold text-gray-800 dark:text-white">添加源</h3>
+                <button onclick="closeSourceModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+            </div>
+            <form id="sourceForm" class="space-y-4" onsubmit="handleSourceSubmit(event)">
+                <input type="hidden" id="sourceId" value="">
+                <input type="hidden" id="sourceGroupId" value="">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">源名称</label>
+                    <input type="text" id="sourceName" required
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="例如：饭太硬">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">源 URL</label>
+                    <input type="url" id="sourceUrl" required
+                        class="w-full px-4 py-2.5 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="https://example.com/tvbox.json">
+                    <p class="text-xs text-gray-400 mt-1">支持格式：纯 JSON、JPEG 嵌入 base64 JSON</p>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="sourceEnabled" checked class="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500">
+                    <label for="sourceEnabled" class="text-sm text-gray-700 dark:text-gray-300">启用</label>
+                </div>
+                <div id="sourceFormError" class="text-red-500 text-sm hidden"></div>
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button type="button" onclick="closeSourceModal()" class="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600">取消</button>
+                    <button type="submit" id="sourceSubmitBtn" class="px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl text-sm font-medium hover:from-blue-700 hover:to-indigo-700 shadow-lg">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 快捷添加到分组 -->
+    <div id="quickAddModal" class="fixed inset-0 z-50 hidden items-center justify-center modal-overlay">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4">
+            <div class="flex items-center justify-between mb-5">
+                <h3 id="quickAddTitle" class="text-lg font-semibold text-gray-800 dark:text-white">快捷添加源</h3>
+                <button onclick="closeQuickAdd()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">✕</button>
+            </div>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">选择要添加到 <strong id="quickAddGroupName"></strong> 的源：</p>
+            <div class="space-y-2">
+                <button onclick="quickAddSubmit('饭太硬','http://www.饭太硬.cc/tv')" class="w-full text-left px-4 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-xl text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all flex items-center justify-between">
+                    <span>饭太硬</span>
+                    <code class="text-xs opacity-60">http://www.饭太硬.cc/tv</code>
+                </button>
+                <button onclick="quickAddSubmit('wex','https://9280.kstore.space/wex.json')" class="w-full text-left px-4 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-xl text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all flex items-center justify-between">
+                    <span>wex</span>
+                    <code class="text-xs opacity-60">https://9280.kstore.space/wex.json</code>
+                </button>
+                <button onclick="quickAddSubmit('装歌','https://tv.nxog.top/m/')" class="w-full text-left px-4 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-xl text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-all flex items-center justify-between">
+                    <span>装歌 (nxog)</span>
+                    <code class="text-xs opacity-60">https://tv.nxog.top/m/</code>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 hidden">
+        <div class="bg-gray-900 dark:bg-gray-700 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-medium slide-in" id="toastMsg"></div>
+    </div>
+
+    <script>
+        // ─── Group ──────────────────────────────────────────────
+
+        let editingGroupId = null;
+
+        function openAddGroupModal() {
+            editingGroupId = null;
+            document.getElementById('groupModalTitle').textContent = '新建分组';
+            document.getElementById('groupId').value = '';
+            document.getElementById('groupName').value = '';
+            document.getElementById('groupSlug').value = '';
+            document.getElementById('groupFormError').classList.add('hidden');
+            document.getElementById('groupModal').classList.remove('hidden');
+            document.getElementById('groupModal').classList.add('flex');
+        }
+
+        function editGroup(id, name, slug) {
+            editingGroupId = id;
+            document.getElementById('groupModalTitle').textContent = '编辑分组';
+            document.getElementById('groupId').value = id;
+            document.getElementById('groupName').value = name;
+            document.getElementById('groupSlug').value = slug;
+            document.getElementById('groupFormError').classList.add('hidden');
+            document.getElementById('groupModal').classList.remove('hidden');
+            document.getElementById('groupModal').classList.add('flex');
+        }
+
+        function closeGroupModal() {
+            document.getElementById('groupModal').classList.add('hidden');
+            document.getElementById('groupModal').classList.remove('flex');
+        }
+
+        async function handleGroupSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('groupId').value;
+            const name = document.getElementById('groupName').value;
+            const slug = document.getElementById('groupSlug').value;
+            const err = document.getElementById('groupFormError');
+            const btn = document.getElementById('groupSubmitBtn');
+
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+            err.classList.add('hidden');
+
+            const method = id ? 'PUT' : 'POST';
+            const endpoint = id ? `/admin/groups/${id}` : '/admin/groups';
+
+            try {
+                const resp = await fetch(endpoint, { method, headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, slug}) });
+                const data = await resp.json();
+                if (resp.ok) {
+                    showToast(id ? '分组已更新！' : '分组已创建！');
+                    closeGroupModal();
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    err.textContent = data.error || '操作失败';
+                    err.classList.remove('hidden');
+                }
+            } catch(e) {
+                err.textContent = '网络错误';
+                err.classList.remove('hidden');
+            }
+            btn.disabled = false;
+            btn.textContent = '保存';
+        }
+
+        async function deleteGroup(id, name) {
+            if (id === 1) { showToast('不能删除默认分组'); return; }
+            if (!confirm(`确定要删除分组"${name}"及其所有源吗？不可恢复。`)) return;
+            try {
+                const resp = await fetch(`/admin/groups/${id}`, { method: 'DELETE' });
+                if (resp.ok) { showToast('分组已删除'); setTimeout(() => location.reload(), 500); }
+                else { const d = await resp.json(); alert(d.error); }
+            } catch(e) { alert('网络错误'); }
+        }
+
+        // ─── Source ─────────────────────────────────────────────
+
+        let editingSourceId = null;
+        let currentGroupId = null;
+
+        function addSourceToGroup(gid, gname) {
+            currentGroupId = gid;
+            editingSourceId = null;
+            document.getElementById('sourceModalTitle').textContent = `添加源 - ${gname}`;
+            document.getElementById('sourceId').value = '';
+            document.getElementById('sourceGroupId').value = gid;
+            document.getElementById('sourceName').value = '';
+            document.getElementById('sourceUrl').value = '';
+            document.getElementById('sourceEnabled').checked = true;
+            document.getElementById('sourceFormError').classList.add('hidden');
+            document.getElementById('sourceModal').classList.remove('hidden');
+            document.getElementById('sourceModal').classList.add('flex');
+        }
+
+        function editSource(id, src) {
+            editingSourceId = id;
+            currentGroupId = src.group_id;
+            document.getElementById('sourceModalTitle').textContent = '编辑源';
+            document.getElementById('sourceId').value = id;
+            document.getElementById('sourceGroupId').value = src.group_id;
+            document.getElementById('sourceName').value = src.name;
+            document.getElementById('sourceUrl').value = src.url;
+            document.getElementById('sourceEnabled').checked = src.enabled;
+            document.getElementById('sourceFormError').classList.add('hidden');
+            document.getElementById('sourceModal').classList.remove('hidden');
+            document.getElementById('sourceModal').classList.add('flex');
+        }
+
+        function closeSourceModal() {
+            document.getElementById('sourceModal').classList.add('hidden');
+            document.getElementById('sourceModal').classList.remove('flex');
+        }
+
+        async function handleSourceSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('sourceId').value;
+            const gid = document.getElementById('sourceGroupId').value;
+            const name = document.getElementById('sourceName').value;
+            const url = document.getElementById('sourceUrl').value;
+            const enabled = document.getElementById('sourceEnabled').checked;
+            const err = document.getElementById('sourceFormError');
+            const btn = document.getElementById('sourceSubmitBtn');
+
+            btn.disabled = true;
+            btn.textContent = '保存中...';
+            err.classList.add('hidden');
+
+            try {
+                let resp;
+                if (id) {
+                    resp = await fetch(`/admin/sources/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, url, enabled}) });
+                } else {
+                    resp = await fetch(`/admin/groups/${gid}/sources`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({name, url, enabled}) });
+                }
+                const data = await resp.json();
+                if (resp.ok) {
+                    showToast(id ? '源已更新！' : '源已添加！');
+                    closeSourceModal();
+                    setTimeout(() => location.reload(), 500);
+                } else {
+                    err.textContent = data.error || '操作失败';
+                    err.classList.remove('hidden');
+                }
+            } catch(e) {
+                err.textContent = '网络错误';
+                err.classList.remove('hidden');
+            }
+            btn.disabled = false;
+            btn.textContent = '保存';
+        }
+
+        async function deleteSource(id, name) {
+            if (!confirm(`确定要删除源"${name}"吗？`)) return;
+            try {
+                const resp = await fetch(`/admin/sources/${id}`, { method: 'DELETE' });
+                if (resp.ok) { showToast('源已删除'); setTimeout(() => location.reload(), 500); }
+                else { const d = await resp.json(); alert(d.error); }
+            } catch(e) { alert('网络错误'); }
+        }
+
+        // ─── Quick Add ──────────────────────────────────────────
+
+        function quickAddSubmit(name, url) {
+            document.getElementById('sourceName').value = name;
+            document.getElementById('sourceUrl').value = url;
+            document.getElementById('sourceEnabled').checked = true;
+            editingSourceId = null;
+            document.getElementById('sourceFormError').classList.add('hidden');
+            closeQuickAdd();
+            document.getElementById('sourceModal').classList.remove('hidden');
+            document.getElementById('sourceModal').classList.add('flex');
+        }
+
+        function openQuickAdd(gid, gname) {
+            currentGroupId = gid;
+            document.getElementById('sourceGroupId').value = gid;
+            document.getElementById('quickAddGroupName').textContent = gname;
+            document.getElementById('quickAddModal').classList.remove('hidden');
+            document.getElementById('quickAddModal').classList.add('flex');
+        }
+
+        function closeQuickAdd() {
+            document.getElementById('quickAddModal').classList.add('hidden');
+            document.getElementById('quickAddModal').classList.remove('flex');
+        }
+
+        // ─── Group Refresh ───────────────────────────────────────
+
+        async function refreshGroup(gid) {
+            try {
+                await fetch(`/admin/groups/${gid}/refresh`, { method: 'POST' });
+                showToast('正在刷新该分组...');
+                setTimeout(() => location.reload(), 2000);
+            } catch(e) { showToast('刷新失败'); }
+        }
+
+        // ─── Common ─────────────────────────────────────────────
+
+        async function handleLogout(e) {
+            e.preventDefault();
+            await fetch('/admin/logout', { method: 'POST' });
+            window.location.href = '/admin/login';
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            document.getElementById('toastMsg').textContent = msg;
+            t.classList.remove('hidden');
+            setTimeout(() => t.classList.add('hidden'), 2500);
+        }
+
+        // Click outside to close modals
+        ['groupModal','sourceModal','quickAddModal'].forEach(id => {
+            document.getElementById(id)?.addEventListener('click', function(e) {
+                if (e.target === this) {
+                    if (id === 'groupModal') closeGroupModal();
+                    else if (id === 'sourceModal') closeSourceModal();
+                    else if (id === 'quickAddModal') closeQuickAdd();
+                }
+            });
+        });
+
+        // Dark mode
+        if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.classList.add('dark');
+        }
+    </script>
+</body>
+</html>

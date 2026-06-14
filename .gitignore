@@ -1,0 +1,5 @@
+.env
+.codegraph
+.reasonix
+data/
+server-test.exe~
